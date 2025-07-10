@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+
+# $FLOTTO Lottery - 1 entry per 10,000 tokens
+import json
+import random
+import ssl
+import urllib.request
+import time
+from datetime import datetime
+
+# ⚠️ UPDATE THIS WITH YOUR TOKEN MINT ADDRESS! ⚠️
+TOKEN_MINT = '[INSERT CA HERE]'
+TOKENS_PER_ENTRY = 10000  # 10k tokens = 1 entry
+TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
+
+print('\n🎰 $FLOTTO Lottery Bot 🎰')
+print(f'Entry System: {TOKENS_PER_ENTRY:,} tokens = 1 entry\n')
+
+# SSL context for Mac
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
+
+def rpc_call(method, params, endpoint='[INSERT YOUR RPC HERE]'):
+    """Make RPC call to Solana"""
+    data = json.dumps({
+        'jsonrpc': '2.0',
+        'id': 1,
+        'method': method,
+        'params': params
+    }).encode()
+    
+    req = urllib.request.Request(
+        endpoint,
+        data=data,
+        headers={'Content-Type': 'application/json'}
+    )
+    
+    try:
+        response = urllib.request.urlopen(req, context=ssl_context, timeout=60)
+        result = json.loads(response.read())
+        
+        if 'error' in result:
+            raise Exception(result['error'])
+            
+        return result['result']
+    except Exception as e:
+        raise Exception(f"RPC error: {e}")
+
+def get_all_holders():
+    """Fetch all token holders and calculate their entries"""
+    print('🔍 Fetching all $FLOTTO holders (this may take a moment)...\n')
+    
+    holders = {}
+    total_supply = 0
+    
+    try:
+        # Get all token accounts for the specified mint
+        result = rpc_call('getProgramAccounts', [
+            TOKEN_PROGRAM_ID,
+            {
+                "encoding": "jsonParsed",
+                "filters": [
+                    {
+                        "dataSize": 165 # Size of a token account
+                    },
+                    {
+                        "memcmp": {
+                            "offset": 0, # Offset for the mint address
+                            "bytes": TOKEN_MINT
+                        }
+                    }
+                ]
+            }
+        ])
+        
+        if not result:
+            raise Exception("No token accounts found for the specified mint.")
+        
+        accounts = result
+        print(f"Processing {len(accounts)} token accounts...\n")
+        
+        # Process each account
+        for i, account_info in enumerate(accounts):
+            try:
+                parsed_info = account_info['account']['data']['parsed']['info']
+                balance = float(parsed_info['tokenAmount']['uiAmount'])
+
+                if balance < TOKENS_PER_ENTRY:
+                    continue  # Skip if not enough tokens for at least one entry
+                
+                owner = parsed_info['owner']
+                entries = int(balance // TOKENS_PER_ENTRY)
+                
+                if entries > 0:
+                    if owner in holders:
+                        holders[owner]['balance'] += balance
+                        holders[owner]['entries'] += entries
+                    else:
+                        holders[owner] = {
+                            'balance': balance,
+                            'entries': entries
+                        }
+                    
+                    total_supply += balance
+                    
+                # Progress update
+                if (i + 1) % 100 == 0:
+                    print(f"  ✓ Processed {i + 1}/{len(accounts)} accounts")
+            
+            except Exception as e:
+                # print(f"  - Skipping an account due to processing error: {e}")
+                continue
+        
+        print(f"  ✓ Processed all {len(accounts)} accounts.")
+        return holders, total_supply
+        
+    except Exception as e:
+        print(f"Error fetching holders: {e}")
+        raise
+
+def run_lottery(holders):
+    """Run the lottery and select a winner"""
+    # Create entries list
+    entries = []
+    total_entries = 0
+    
+    for wallet, data in holders.items():
+        for _ in range(data['entries']):
+            entries.append((wallet, data))
+        total_entries += data['entries']
+    
+    print(f"\n📊 Lottery Statistics:")
+    print(f"   • Eligible Wallets: {len(holders)}")
+    print(f"   • Total Entries: {total_entries:,}")
+    print(f"   • Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    
+    # Show top 10 holders
+    sorted_holders = sorted(holders.items(), key=lambda x: x[1]['balance'], reverse=True)
+    
+    print("🏆 Top 10 Holders:")
+    print("━" * 70)
+    print(f"{'Rank':<6}{'Wallet':<50}{'Balance':<12}{'Entries':<8}")
+    print("━" * 70)
+    
+    for i, (wallet, data) in enumerate(sorted_holders[:10], 1):
+        short_wallet = f"{wallet[:6]}...{wallet[-6:]}"
+        print(f"{i:<6}{short_wallet:<50}{data['balance']:>10,.0f}  {data['entries']:>6}")
+    
+    print("━" * 70)
+    
+    # Wait for user input
+    input("\n🎲 Press Enter to select the winner...")
+    
+    # Select random winner
+    winner_entry = random.choice(entries)
+    winner_wallet = winner_entry[0]
+    winner_data = winner_entry[1]
+    
+    # Calculate win probability
+    win_probability = (winner_data['entries'] / total_entries) * 100
+    
+    # Display winner
+    print("\n" + "🎉" * 25)
+    print("\n🏆 WINNER SELECTED! 🏆\n")
+    print(f"👤 Wallet: {winner_wallet}")
+    print(f"💰 Balance: {winner_data['balance']:,.0f} $FLOTTO")
+    print(f"🎟️  Entries: {winner_data['entries']:,}")
+    print(f"📊 Win Probability: {win_probability:.2f}%")
+    print(f"⏰ Selected at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("\n" + "🎉" * 25)
+    
+    # Save winner to file
+    filename = f"lottery_winner_{int(time.time())}.json"
+    winner_info = {
+        'timestamp': datetime.now().isoformat(),
+        'winner_wallet': winner_wallet,
+        'balance': winner_data['balance'],
+        'entries': winner_data['entries'],
+        'win_probability': win_probability,
+        'total_entries': total_entries,
+        'total_participants': len(holders)
+    }
+    
+    with open(filename, 'w') as f:
+        json.dump(winner_info, f, indent=2)
+    
+    print(f"\n✅ Winner saved to: {filename}")
+    print("\n💡 Next steps:")
+    print("   1. Copy the winner's wallet address")
+    print("   2. Send your prize from your dev wallet to the winner")
+    print("   3. Share the results with your community!")
+
+def main():
+    if TOKEN_MINT == 'YOUR_$FLOTTO_TOKEN_MINT_ADDRESS' or TOKEN_MINT == 'EG57U8X6pcm6MroM9ntjGgLuS3br1QbBQ7wQc9vHtaki':
+        print('❌ ERROR: Please update TOKEN_MINT with your token address!')
+        print('   Edit this file and replace the placeholder token mint address.')
+        return
+    
+    try:
+        # Get all holders
+        holders, total_supply = get_all_holders()
+        
+        if not holders:
+            print(f'❌ No holders found with {TOKENS_PER_ENTRY:,}+ tokens!')
+            return
+        
+        # Run lottery
+        run_lottery(holders)
+        
+    except KeyboardInterrupt:
+        print("\n\n❌ Lottery cancelled by user")
+    except Exception as e:
+        print(f'\n❌ Error: {e}')
+        print('\nTroubleshooting:')
+        print('1. Make sure your TOKEN_MINT address is correct')
+        print('2. Try running the script again (RPC can be flaky)')
+        print('3. Check your internet connection')
+
+if __name__ == '__main__':
+    main()
