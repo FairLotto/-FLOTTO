@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 
 # ⚠️ UPDATE THIS WITH YOUR TOKEN MINT ADDRESS! ⚠️
-TOKEN_MINT = '[INSERT CA HERE]'
+TOKEN_MINT = 'YOUR_$FLOTTO_TOKEN_MINT_ADDRESS'
 TOKENS_PER_ENTRY = 10000  # 10k tokens = 1 entry
 TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
 
@@ -192,7 +192,7 @@ def run_lottery(holders):
     print("   3. Share the results with your community!")
 
 def main():
-    if TOKEN_MINT == 'YOUR_$FLOTTO_TOKEN_MINT_ADDRESS' or TOKEN_MINT == 'EG57U8X6pcm6MroM9ntjGgLuS3br1QbBQ7wQc9vHtaki':
+    if TOKEN_MINT == 'YOUR_$FLOTTO_TOKEN_MINT_ADDRESS':
         print('❌ ERROR: Please update TOKEN_MINT with your token address!')
         print('   Edit this file and replace the placeholder token mint address.')
         return
